@@ -1,17 +1,38 @@
-FROM mcr.microsoft.com/devcontainers/python:3.10
+# Étape 1 : Utiliser une image de base Node.js pour construire le projet (frontend + backend)
+FROM node:18 AS build
 
-WORKDIR /code
+# Définir le répertoire de travail
+WORKDIR /app
 
-RUN pip install -U gunicorn autogenstudio
+# Mise à jour des paquets et installation de rsync, Python, pip et venv
+RUN apt-get update && apt-get install -y \
+    rsync \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -u 1000 user
-USER user
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH \
-    AUTOGENSTUDIO_APPDIR=/home/user/app
+# Créer un environnement virtuel pour Python
+RUN python3 -m venv /venv
 
-WORKDIR $HOME/app
+# Activer l'environnement virtuel
+ENV PATH="/venv/bin:$PATH"
 
-COPY --chown=user . $HOME/app
+# Copier tout le projet dans le conteneur
+COPY . .
 
-CMD gunicorn -w $((2 * $(getconf _NPROCESSORS_ONLN) + 1)) --timeout 12600 -k uvicorn.workers.UvicornWorker autogenstudio.web.app:app --bind "0.0.0.0:8081"
+# Installer les dépendances Python dans l'environnement virtuel
+RUN pip install --upgrade pip
+RUN pip install -e .
+
+# Passer au répertoire frontend pour installer et construire le frontend
+WORKDIR /app/frontend
+RUN npm install -g gatsby-cli
+RUN yarn install
+RUN yarn build
+
+# Exposer les ports nécessaires
+EXPOSE 8081 
+
+# Commande pour démarrer le backend et le serveur frontend
+CMD ["autogenstudio", "ui", "--port", "8081", "--host", "0.0.0.0"]
